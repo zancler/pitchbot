@@ -1,5 +1,6 @@
 import os
 import anthropic
+from costs import record_anthropic_usage
 from tools.github_tools import (
     list_repo_files,
     read_repo_file,
@@ -7,26 +8,28 @@ from tools.github_tools import (
     get_recent_commits,
     get_open_prs,
 )
+from tools.meta_tools import update_system_prompt, PROMPT_FILE
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-SYSTEM_PROMPT = """You are the product manager for our side project. You have full context \
-about what we're building and can look things up in our GitHub repo at any time.
+_PROMPT_PATH = os.path.join(os.path.dirname(__file__), PROMPT_FILE)
 
-You can:
-- Read any documentation, specs, or files in the repo
-- Check open issues and PRs
-- See recent commits to understand what's been built
-- Answer questions about the project, current status, blockers, and decisions
 
-Be concise and direct — you're talking to the two founders via Slack, not writing a report. \
-Use bullet points sparingly. When you look something up, briefly say what you found rather than \
-dumping raw content.
+def _load_prompt() -> str:
+    try:
+        with open(_PROMPT_PATH) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "You are a helpful project assistant."
 
-When someone tells you something important (a new decision, a change in direction, a blocker), \
-acknowledge it clearly so they know you've understood.
 
-Repo: """ + os.getenv("GITHUB_REPO", "owner/repo")
+# Mutable so the update_system_prompt tool can change it in-session
+_system_prompt = _load_prompt()
+
+
+def get_system_prompt() -> str:
+    return _system_prompt + "\n\nRepo: " + os.getenv("GITHUB_REPO", "owner/repo")
+
 
 TOOLS = [
     {
@@ -108,6 +111,24 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "update_system_prompt",
+        "description": (
+            "Rewrite the bot's system prompt to persist a behavior change the user has requested. "
+            "Pass the full updated prompt — not just the change. "
+            "Use this when the user tells you to behave differently going forward."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "new_prompt": {
+                    "type": "string",
+                    "description": "The full new system prompt content.",
+                }
+            },
+            "required": ["new_prompt"],
+        },
+    },
 ]
 
 
@@ -129,6 +150,13 @@ def execute_tool(name: str, inputs: dict) -> str:
         )
     elif name == "get_open_prs":
         return get_open_prs(limit=inputs.get("limit", 10))
+    elif name == "update_system_prompt":
+        global _system_prompt
+        new_prompt = inputs["new_prompt"]
+        result = update_system_prompt(new_prompt)
+        # Apply immediately in-session too
+        _system_prompt = new_prompt
+        return result
     else:
         return f"Unknown tool: {name}"
 
@@ -138,15 +166,16 @@ def run_agent(user_message: str, sender: str) -> str:
         {"role": "user", "content": f"[{sender}]: {user_message}"}
     ]
 
-    # Agentic loop — keep going until Claude stops calling tools
     for _ in range(10):  # max 10 tool calls per message
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=get_system_prompt(),
             tools=TOOLS,
             messages=messages,
         )
+
+        record_anthropic_usage(response.usage.input_tokens, response.usage.output_tokens)
 
         if response.stop_reason == "end_turn":
             text_blocks = [b.text for b in response.content if hasattr(b, "text")]

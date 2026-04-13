@@ -1,0 +1,34 @@
+import os
+from github import Github, GithubException
+
+PROMPT_FILE = "system_prompt.txt"
+
+
+def update_system_prompt(new_prompt: str) -> str:
+    """Rewrite system_prompt.txt in the repo via GitHub API and commit it."""
+    try:
+        g = Github(os.environ["GITHUB_TOKEN"])
+        repo = g.get_repo(os.environ["GITHUB_REPO"])
+
+        try:
+            existing = repo.get_contents(PROMPT_FILE)
+            repo.update_file(
+                PROMPT_FILE,
+                "Update system prompt via bot instruction",
+                new_prompt,
+                existing.sha,
+            )
+        except GithubException:
+            repo.create_file(
+                PROMPT_FILE,
+                "Create system prompt file",
+                new_prompt,
+            )
+
+        return (
+            "Done — behavior saved to the repo. "
+            "A redeploy will kick off automatically (takes ~2 min). "
+            "I've already applied the change in this session."
+        )
+    except Exception as e:
+        return f"Error saving behavior change: {e}"

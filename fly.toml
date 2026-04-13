@@ -1,22 +1,15 @@
-# fly.toml - Fly.io deployment config
-# Replace "your-pm-agent" with your own app name (must be globally unique on Fly.io)
+# fly.toml app configuration file generated for pitchbot on 2026-04-13T15:26:26+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "your-pm-agent"
-primary_region = "lhr"  # London — change to your nearest: https://fly.io/docs/reference/regions/
+app = 'pitchbot'
+primary_region = 'lhr'
 
 [build]
-  dockerfile = "Dockerfile"
-
-[http_service]
-  # The bot uses Socket Mode (persistent WebSocket), not HTTP webhooks.
-  # Fly needs a minimal service declaration to keep the machine alive.
-  internal_port = 8080
-  force_https = false
-  auto_stop_machines = false   # Keep it running 24/7
-  auto_start_machines = true
-  min_machines_running = 1
+  dockerfile = 'Dockerfile'
 
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '256mb'
   cpus = 1
+  memory_mb = 256
