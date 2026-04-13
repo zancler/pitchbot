@@ -161,10 +161,9 @@ def execute_tool(name: str, inputs: dict) -> str:
         return f"Unknown tool: {name}"
 
 
-def run_agent(user_message: str, sender: str) -> str:
-    messages = [
-        {"role": "user", "content": f"[{sender}]: {user_message}"}
-    ]
+def run_agent(user_message: str, sender: str, history: list = None) -> str:
+    messages = list(history) if history else []
+    messages.append({"role": "user", "content": f"[{sender}]: {user_message}"})
 
     for _ in range(10):  # max 10 tool calls per message
         response = client.messages.create(

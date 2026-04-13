@@ -36,6 +36,28 @@ def post(channel: str, text: str, thread_ts: str = None):
     app.client.chat_postMessage(**kwargs)
 
 
+def get_thread_history(channel: str, thread_ts: str) -> list:
+    """Fetch previous messages in a thread and format as Claude conversation history."""
+    try:
+        result = app.client.conversations_replies(channel=channel, ts=thread_ts)
+        messages = result.get("messages", [])[:-1]  # exclude current message
+        history = []
+        bot_id = get_bot_user_id()
+        for msg in messages:
+            text = msg.get("text", "").strip()
+            if not text:
+                continue
+            if msg.get("user") == bot_id or msg.get("bot_id"):
+                history.append({"role": "assistant", "content": text})
+            else:
+                sender = get_user_name(msg.get("user", "unknown"))
+                history.append({"role": "user", "content": f"[{sender}]: {text}"})
+        return history
+    except Exception as e:
+        logger.error(f"Failed to fetch thread history: {e}")
+        return []
+
+
 def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
     """Check Slack thread history to see if the bot has already replied."""
     try:
@@ -73,7 +95,8 @@ def handle_mention(event, say):
         return
 
     try:
-        reply = run_agent(user_message, sender)
+        history = get_thread_history(channel, thread_ts) if thread_ts else []
+        reply = run_agent(user_message, sender, history)
         post(channel, reply, thread_ts)
         _maybe_warn_cost(channel, thread_ts)
     except Exception as e:
@@ -111,7 +134,8 @@ def handle_message(event, say):
     # Channel thread messages — only if bot is already in the thread
     elif thread_ts and bot_is_in_thread(channel, thread_ts):
         try:
-            reply = run_agent(user_message, sender)
+            history = get_thread_history(channel, thread_ts)
+            reply = run_agent(user_message, sender, history)
             post(channel, reply, thread_ts)
             _maybe_warn_cost(channel, thread_ts)
         except Exception as e:
