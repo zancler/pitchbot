@@ -20,20 +20,29 @@ _bot_user_id: str = None
 def get_bot_user_id() -> str:
     global _bot_user_id
     if _bot_user_id is None:
-        _bot_user_id = app.client.auth_test()["user_id"]
+        try:
+            result = app.client.auth_test()
+            _bot_user_id = result["user_id"]
+            logger.info(f"Bot user ID: {_bot_user_id}")
+        except Exception as e:
+            logger.error(f"Failed to get bot user ID: {e}")
     return _bot_user_id
 
 
 def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
     """Check Slack thread history to see if the bot has already replied."""
     try:
-        result = app.client.conversations_replies(channel=channel, ts=thread_ts)
         bot_id = get_bot_user_id()
-        return any(
-            msg.get("user") == bot_id
-            for msg in result.get("messages", [])
-        )
-    except Exception:
+        if not bot_id:
+            logger.warning("No bot user ID, skipping thread check")
+            return False
+        result = app.client.conversations_replies(channel=channel, ts=thread_ts)
+        messages = result.get("messages", [])
+        in_thread = any(msg.get("user") == bot_id for msg in messages)
+        logger.info(f"Thread check {thread_ts}: {len(messages)} messages, bot_in_thread={in_thread}")
+        return in_thread
+    except Exception as e:
+        logger.error(f"Thread check failed: {e}")
         return False
 
 
