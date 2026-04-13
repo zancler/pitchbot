@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 
-# Cache the bot's own user ID so we can check thread history
 _bot_user_id: str = None
 
 
@@ -21,12 +20,20 @@ def get_bot_user_id() -> str:
     global _bot_user_id
     if _bot_user_id is None:
         try:
-            result = app.client.auth_test()
-            _bot_user_id = result["user_id"]
+            _bot_user_id = app.client.auth_test()["user_id"]
             logger.info(f"Bot user ID: {_bot_user_id}")
         except Exception as e:
             logger.error(f"Failed to get bot user ID: {e}")
     return _bot_user_id
+
+
+def post(channel: str, text: str, thread_ts: str = None):
+    """Post a message, always in a thread if thread_ts is given."""
+    kwargs = {"channel": channel, "text": text}
+    if thread_ts:
+        kwargs["thread_ts"] = thread_ts
+    logger.info(f"Posting to {channel} thread_ts={thread_ts}")
+    app.client.chat_postMessage(**kwargs)
 
 
 def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
@@ -49,29 +56,29 @@ def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
 @app.event("app_mention")
 def handle_mention(event, say):
     """Respond when the bot is @mentioned in a channel."""
-    user_message = event["text"]
     user_id = event["user"]
     sender = get_user_name(user_id)
     channel = event["channel"]
     thread_ts = event.get("thread_ts", event["ts"])
 
-    # Strip the bot mention from the message
     user_message = " ".join(
-        word for word in user_message.split()
+        word for word in event["text"].split()
         if not word.startswith("<@")
     ).strip()
 
+    logger.info(f"Mention: channel={channel}, thread_ts={thread_ts}, msg={user_message[:50]}")
+
     if not user_message:
-        say("Hey! Ask me anything about the project.", thread_ts=thread_ts)
+        post(channel, "Hey! Ask me anything about the project.", thread_ts)
         return
 
     try:
         reply = run_agent(user_message, sender)
-        say(reply, thread_ts=thread_ts)
-        _maybe_warn_cost(say, thread_ts)
+        post(channel, reply, thread_ts)
+        _maybe_warn_cost(channel, thread_ts)
     except Exception as e:
         logger.error(f"Error: {e}")
-        say("Something went wrong — check the logs.", thread_ts=thread_ts)
+        post(channel, "Something went wrong — check the logs.", thread_ts)
 
 
 @app.event("message")
@@ -91,36 +98,34 @@ def handle_message(event, say):
 
     sender = get_user_name(user_id)
 
-    # DMs — always respond (no threading in DMs)
+    # DMs — always respond
     if channel_type == "im":
         try:
             reply = run_agent(user_message, sender)
-            say(reply)
-            _maybe_warn_cost(say, None)
+            post(channel, reply)
+            _maybe_warn_cost(channel, None)
         except Exception as e:
             logger.error(f"Error: {e}")
-            say("Something went wrong — check the logs.")
+            post(channel, "Something went wrong — check the logs.")
 
-    # Channel messages — only respond if bot is already in the thread
+    # Channel thread messages — only if bot is already in the thread
     elif thread_ts and bot_is_in_thread(channel, thread_ts):
         try:
             reply = run_agent(user_message, sender)
-            say(reply, thread_ts=thread_ts)
-            _maybe_warn_cost(say, thread_ts)
+            post(channel, reply, thread_ts)
+            _maybe_warn_cost(channel, thread_ts)
         except Exception as e:
             logger.error(f"Error: {e}")
-            say("Something went wrong — check the logs.", thread_ts=thread_ts)
+            post(channel, "Something went wrong — check the logs.", thread_ts)
 
 
-def _maybe_warn_cost(say, thread_ts=None):
+def _maybe_warn_cost(channel: str, thread_ts: str = None):
     threshold = check_thresholds()
     if threshold is not None:
-        kwargs = {"thread_ts": thread_ts} if thread_ts else {}
-        say(f":warning: Cost alert: total usage has crossed ${threshold:.0f}. {cost_summary()}", **kwargs)
+        post(channel, f":warning: Cost alert: total usage has crossed ${threshold:.0f}. {cost_summary()}", thread_ts)
 
 
 def get_user_name(user_id: str) -> str:
-    """Resolve a Slack user ID to a display name."""
     try:
         result = app.client.users_info(user=user_id)
         return result["user"]["real_name"] or result["user"]["name"]
