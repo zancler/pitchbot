@@ -1,0 +1,22 @@
+# fly.toml - Fly.io deployment config
+# Replace "your-pm-agent" with your own app name (must be globally unique on Fly.io)
+
+app = "your-pm-agent"
+primary_region = "lhr"  # London — change to your nearest: https://fly.io/docs/reference/regions/
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  # The bot uses Socket Mode (persistent WebSocket), not HTTP webhooks.
+  # Fly needs a minimal service declaration to keep the machine alive.
+  internal_port = 8080
+  force_https = false
+  auto_stop_machines = false   # Keep it running 24/7
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

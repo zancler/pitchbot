@@ -1,0 +1,3 @@
+anthropic>=0.25.0
+slack-bolt>=1.18.0
+PyGithub>=2.1.0
