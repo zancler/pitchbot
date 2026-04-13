@@ -13,8 +13,28 @@ logger = logging.getLogger(__name__)
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 
-# Track (channel, thread_ts) pairs where the bot has replied — no @mention needed in these
-_active_threads: set = set()
+# Cache the bot's own user ID so we can check thread history
+_bot_user_id: str = None
+
+
+def get_bot_user_id() -> str:
+    global _bot_user_id
+    if _bot_user_id is None:
+        _bot_user_id = app.client.auth_test()["user_id"]
+    return _bot_user_id
+
+
+def bot_is_in_thread(channel: str, thread_ts: str) -> bool:
+    """Check Slack thread history to see if the bot has already replied."""
+    try:
+        result = app.client.conversations_replies(channel=channel, ts=thread_ts)
+        bot_id = get_bot_user_id()
+        return any(
+            msg.get("user") == bot_id
+            for msg in result.get("messages", [])
+        )
+    except Exception:
+        return False
 
 
 @app.event("app_mention")
@@ -39,7 +59,6 @@ def handle_mention(event, say):
     try:
         reply = run_agent(user_message, sender)
         say(reply, thread_ts=thread_ts)
-        _active_threads.add((channel, thread_ts))
         _maybe_warn_cost(say, thread_ts)
     except Exception as e:
         logger.error(f"Error: {e}")
@@ -74,7 +93,7 @@ def handle_message(event, say):
             say("Something went wrong — check the logs.")
 
     # Channel messages — only respond if bot is already in the thread
-    elif thread_ts and (channel, thread_ts) in _active_threads:
+    elif thread_ts and bot_is_in_thread(channel, thread_ts):
         try:
             reply = run_agent(user_message, sender)
             say(reply, thread_ts=thread_ts)
