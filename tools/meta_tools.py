@@ -7,7 +7,9 @@ PROMPT_FILE = "system_prompt.txt"
 def update_system_prompt(new_prompt: str) -> str:
     """Rewrite system_prompt.txt in the repo via GitHub API and commit it."""
     try:
-        g = Github(os.environ["GITHUB_TOKEN"])
+        # Use a separate token for writing to the bot's own repo
+        token = os.environ.get("PITCHBOT_GITHUB_TOKEN", os.environ["GITHUB_TOKEN"])
+        g = Github(token)
         # Always commit back to the bot's own repo, not the project repo
         repo = g.get_repo(os.environ.get("PITCHBOT_REPO", "zancler/pitchbot"))
 
