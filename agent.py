@@ -1,6 +1,7 @@
 import os
 import anthropic
 from costs import record_anthropic_usage
+from tools.memory_tools import load_memory, save_memory
 from tools.github_tools import (
     list_repo_files,
     read_repo_file,
@@ -28,7 +29,11 @@ _system_prompt = _load_prompt()
 
 
 def get_system_prompt() -> str:
-    return _system_prompt + "\n\nRepo: " + os.getenv("GITHUB_REPO", "owner/repo")
+    prompt = _system_prompt + "\n\nRepo: " + os.getenv("GITHUB_REPO", "owner/repo")
+    memory = load_memory()
+    if memory:
+        prompt += "\n\n## What I know about this project:\n" + memory
+    return prompt
 
 
 TOOLS = [
@@ -112,6 +117,24 @@ TOOLS = [
         },
     },
     {
+        "name": "save_memory",
+        "description": (
+            "Save important project context to persistent memory. "
+            "Use this when the user shares decisions, priorities, team context, or anything "
+            "they'd expect you to remember permanently. Pass the full updated memory — not just the new bit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The full memory content to save — written as concise notes.",
+                }
+            },
+            "required": ["content"],
+        },
+    },
+    {
         "name": "update_system_prompt",
         "description": (
             "Rewrite the bot's system prompt to persist a behavior change the user has requested. "
@@ -150,6 +173,8 @@ def execute_tool(name: str, inputs: dict) -> str:
         )
     elif name == "get_open_prs":
         return get_open_prs(limit=inputs.get("limit", 10))
+    elif name == "save_memory":
+        return save_memory(inputs["content"])
     elif name == "update_system_prompt":
         global _system_prompt
         new_prompt = inputs["new_prompt"]
